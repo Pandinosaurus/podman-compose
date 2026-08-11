@@ -2,6 +2,7 @@
 
 import os
 import shutil
+import subprocess
 import unittest
 from typing import Any
 from unittest import mock
@@ -9,6 +10,7 @@ from unittest import mock
 from parameterized import parameterized
 
 from podman_compose import PodmanCompose
+from podman_compose import PodmanComposeError
 from podman_compose import container_to_args
 
 
@@ -45,6 +47,29 @@ def get_test_file_path(rel_path: str) -> str:
 
 
 class TestContainerToArgs(unittest.IsolatedAsyncioTestCase):
+    async def test_external_network_missing_raises_user_friendly_error(self) -> None:
+        c = create_compose_mock()
+        c.default_net = "external_net"
+        c.networks = {
+            "external_net": {
+                "external": True,
+                "name": "missing-external-network",
+            }
+        }
+
+        async def podman_output(*args: Any, **kwargs: Any) -> None:
+            if args[2] == ["exists", "missing-external-network"]:
+                raise subprocess.CalledProcessError(1, "podman network exists")
+
+        setattr(c.podman, "output", mock.Mock(side_effect=podman_output))
+        cnt = get_minimal_container()
+
+        with self.assertRaisesRegex(
+            PodmanComposeError,
+            r"External network \[missing-external-network\] does not exist\.",
+        ):
+            await container_to_args(c, cnt)
+
     async def test_minimal(self) -> None:
         c = create_compose_mock()
 
@@ -259,6 +284,24 @@ class TestContainerToArgs(unittest.IsolatedAsyncioTestCase):
                 "-d",
                 "--network=bridge:alias=service_name",
                 "--no-hosts",
+                "busybox",
+            ],
+        )
+
+    async def test_passwd_extension(self) -> None:
+        c = create_compose_mock()
+
+        cnt = get_minimal_container()
+        cnt["x-podman.passwd"] = False
+
+        args = await container_to_args(c, cnt)
+        self.assertEqual(
+            args,
+            [
+                "--name=project_name_service_name1",
+                "-d",
+                "--network=bridge:alias=service_name",
+                "--passwd=false",
                 "busybox",
             ],
         )
@@ -758,6 +801,49 @@ class TestContainerToArgs(unittest.IsolatedAsyncioTestCase):
 
     @parameterized.expand([
         (
+            "without_subpath",
+            {},
+            "type=volume,source=volname,destination=/mnt/example",
+        ),
+        (
+            "with_subpath",
+            {"volume": {"subpath": "path/to/image/folder"}},
+            "type=volume,source=volname,destination=/mnt/example,subpath=path/to/image/folder",
+        ),
+    ])
+    async def test_volumes_mount(
+        self, test_name: str, volume_opts: dict, expected_mount_arg: str
+    ) -> None:
+        c = create_compose_mock()
+        c.vols = {"volname": {"name": "volname"}}
+
+        cnt = get_minimal_container()
+        cnt["_service"] = cnt["service_name"]
+
+        cnt["volumes"] = [
+            {
+                "type": "volume",
+                "source": "volname",
+                "target": "/mnt/example",
+                **volume_opts,
+            },
+        ]
+
+        args = await container_to_args(c, cnt)
+        self.assertEqual(
+            args,
+            [
+                "--name=project_name_service_name1",
+                "-d",
+                "--mount",
+                expected_mount_arg,
+                "--network=bridge:alias=service_name",
+                "busybox",
+            ],
+        )
+
+    @parameterized.expand([
+        (
             "create_host_path_set_to_true",
             {"bind": {"create_host_path": True}},
         ),
@@ -965,7 +1051,7 @@ class TestContainerToArgs(unittest.IsolatedAsyncioTestCase):
                 "--name=project_name_service_name1",
                 "-d",
                 "--network=bridge:alias=service_name",
-                "--healthcheck-command",
+                "--health-cmd",
                 '["CMD-SHELL", "cmd arg1 arg2"]',
                 "busybox",
             ],
@@ -985,7 +1071,7 @@ class TestContainerToArgs(unittest.IsolatedAsyncioTestCase):
                 "--name=project_name_service_name1",
                 "-d",
                 "--network=bridge:alias=service_name",
-                "--healthcheck-command",
+                "--health-cmd",
                 '["cmd", "arg1", "arg2"]',
                 "busybox",
             ],
@@ -1005,8 +1091,28 @@ class TestContainerToArgs(unittest.IsolatedAsyncioTestCase):
                 "--name=project_name_service_name1",
                 "-d",
                 "--network=bridge:alias=service_name",
-                "--healthcheck-command",
+                "--health-cmd",
                 '["cmd arg1 arg2"]',
+                "busybox",
+            ],
+        )
+
+    async def test_healthcheck_disable(self) -> None:
+        c = create_compose_mock()
+        cnt = get_minimal_container()
+        cnt["healthcheck"] = {
+            "test": "cmd arg1 arg2",
+            "disable": "true",
+        }
+
+        args = await container_to_args(c, cnt)
+        self.assertEqual(
+            args,
+            [
+                "--name=project_name_service_name1",
+                "-d",
+                "--network=bridge:alias=service_name",
+                "--no-healthcheck",
                 "busybox",
             ],
         )
@@ -1018,5 +1124,252 @@ class TestContainerToArgs(unittest.IsolatedAsyncioTestCase):
             "test": ["CMD-SHELL", "cmd arg1", "arg2"],
         }
 
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, "'CMD-SHELL' takes a single string after it"):
             await container_to_args(c, cnt)
+
+    async def test_unknown_healthcheck_test_type(self) -> None:
+        c = create_compose_mock()
+        cnt = get_minimal_container()
+        cnt["healthcheck"] = {
+            "test": ["TEST", "arg1", "arg2"],
+        }
+        with self.assertRaises(ValueError) as error_msg:
+            await container_to_args(c, cnt)
+
+        expected = "unknown healthcheck test type [TEST], expecting NONE, CMD or CMD-SHELL."
+        self.assertEqual(expected, str(error_msg.exception))
+
+    async def test_healthcheck_test_not_string_or_list(self) -> None:
+        c = create_compose_mock()
+        cnt = get_minimal_container()
+        cnt["healthcheck"] = {
+            "test": 2,
+        }
+
+        with self.assertRaisesRegex(ValueError, "'healthcheck.test' either a string or a list"):
+            await container_to_args(c, cnt)
+
+    async def test_healthcheck_not_a_dict_error(self) -> None:
+        c = create_compose_mock()
+        cnt = get_minimal_container()
+        cnt["healthcheck"] = []
+
+        with self.assertRaisesRegex(ValueError, "'healthcheck' must be a key-value mapping"):
+            await container_to_args(c, cnt)
+
+    async def test_healthcheck_test_is_missing(self) -> None:
+        c = create_compose_mock()
+        cnt = get_minimal_container()
+        cnt["healthcheck"] = {
+            "interval": "1m",
+            "retries": "3",
+        }
+
+        args = await container_to_args(c, cnt)
+        self.assertEqual(
+            args,
+            [
+                "--name=project_name_service_name1",
+                "-d",
+                "--network=bridge:alias=service_name",
+                '--health-interval',
+                '1m',
+                '--health-retries',
+                '3',
+                "busybox",
+            ],
+        )
+
+    async def test_healthcheck_options(self) -> None:
+        c = create_compose_mock()
+        cnt = get_minimal_container()
+        cnt["healthcheck"] = {
+            "test": ["CMD", "cmd", "arg1", "arg2"],
+            "interval": "1m",
+            "timeout": "10s",
+            "retries": "3",
+            "start_period": "5s",
+            "start_interval": "6s",
+        }
+
+        args = await container_to_args(c, cnt)
+        self.assertEqual(
+            args,
+            [
+                "--name=project_name_service_name1",
+                "-d",
+                "--network=bridge:alias=service_name",
+                "--health-cmd",
+                '["cmd", "arg1", "arg2"]',
+                '--health-interval',
+                '1m',
+                '--health-timeout',
+                '10s',
+                '--health-start-period',
+                '5s',
+                '--health-startup-interval',
+                '6s',
+                '--health-retries',
+                '3',
+                "busybox",
+            ],
+        )
+
+    @parameterized.expand([
+        "",
+        "container:ipc_test0_container",
+        "host",
+        "none",
+        "ns:namespace_id",
+        "private",
+        "shareable",
+        "container:ipc_test0_container",
+    ])
+    async def test_ipc_simple_modes(self, ipc_mode: str) -> None:
+        """Pass simple ipc modes unchanged as --ipc parameter"""
+
+        c = create_compose_mock()
+
+        cnt = get_minimal_container()
+        cnt["ipc"] = ipc_mode
+
+        args = await container_to_args(c, cnt)
+        self.assertEqual(
+            args,
+            [
+                "--name=project_name_service_name1",
+                "-d",
+                "--network=bridge:alias=service_name",
+                "--ipc",
+                ipc_mode,
+                "busybox",
+            ],
+        )
+
+    @parameterized.expand(["invalid", (["a list", "is invalid too"],)])
+    async def test_ipc_invalid_mode(self, ipc_mode: Any) -> None:
+        """Throw ValueError on invalid ipc mode"""
+
+        c = create_compose_mock()
+
+        cnt = get_minimal_container()
+        cnt["ipc"] = ipc_mode
+
+        with self.assertRaisesRegex(ValueError, r"invalid ipc mode"):
+            await container_to_args(c, cnt)
+
+    async def test_ipc_service_name(self) -> None:
+        """Translate ipc mode "service:service_name" to "container:container_name"."""
+
+        c = create_compose_mock()
+        c.container_names_by_service = {
+            "service_1": ["container_1"],
+        }
+
+        cnt = get_minimal_container()
+        cnt["ipc"] = "service:service_1"
+
+        args = await container_to_args(c, cnt)
+        self.assertEqual(
+            args,
+            [
+                "--name=project_name_service_name1",
+                "-d",
+                "--network=bridge:alias=service_name",
+                "--ipc",
+                "container:container_1",
+                "busybox",
+            ],
+        )
+
+    async def test_ipc_invalid_service_name(self) -> None:
+        """Throw ValueError if ipc mode "service:service_name" refers to an invalid service name"""
+
+        c = create_compose_mock()
+        c.container_names_by_service = {
+            "service_1": ["container_1"],
+        }
+
+        cnt = get_minimal_container()
+        cnt["ipc"] = "service:invalid"
+
+        with self.assertRaisesRegex(
+            ValueError, r"invalid ipc mode \[service:invalid\], service \[invalid\] does not exist"
+        ):
+            await container_to_args(c, cnt)
+
+    async def test_stop_grace_period(self) -> None:
+        c = create_compose_mock()
+
+        cnt = get_minimal_container()
+        cnt["stop_grace_period"] = "30s"
+
+        args = await container_to_args(c, cnt)
+        self.assertEqual(
+            args,
+            [
+                "--name=project_name_service_name1",
+                "-d",
+                "--network=bridge:alias=service_name",
+                "--stop-timeout",
+                "30",
+                "busybox",
+            ],
+        )
+
+    async def test_stop_grace_period_minutes(self) -> None:
+        c = create_compose_mock()
+
+        cnt = get_minimal_container()
+        cnt["stop_grace_period"] = "1m30s"
+
+        args = await container_to_args(c, cnt)
+        self.assertEqual(
+            args,
+            [
+                "--name=project_name_service_name1",
+                "-d",
+                "--network=bridge:alias=service_name",
+                "--stop-timeout",
+                "90",
+                "busybox",
+            ],
+        )
+
+    async def test_command_string_is_shlex_split(self) -> None:
+        c = create_compose_mock()
+
+        cnt = get_minimal_container()
+        cnt["command"] = "sleep infinity"
+
+        args = await container_to_args(c, cnt)
+        self.assertEqual(
+            args,
+            [
+                "--name=project_name_service_name1",
+                "-d",
+                "--network=bridge:alias=service_name",
+                "busybox",
+                "sleep",
+                "infinity",
+            ],
+        )
+
+    async def test_entrypoint_string_is_shlex_split(self) -> None:
+        c = create_compose_mock()
+
+        cnt = get_minimal_container()
+        cnt["entrypoint"] = "bash -c 'echo hello'"
+
+        args = await container_to_args(c, cnt)
+        self.assertEqual(
+            args,
+            [
+                "--name=project_name_service_name1",
+                "-d",
+                "--network=bridge:alias=service_name",
+                "--entrypoint",
+                '["bash", "-c", "echo hello"]',
+                "busybox",
+            ],
+        )

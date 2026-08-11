@@ -3,7 +3,10 @@
 import os
 import unittest
 
+from packaging import version
+
 from tests.integration.test_utils import RunSubprocessMixin
+from tests.integration.test_utils import get_podman_version
 from tests.integration.test_utils import podman_compose_path
 from tests.integration.test_utils import test_path
 
@@ -12,8 +15,9 @@ def compose_yaml_path(test_ref_folder: str) -> str:
     return os.path.join(test_path(), "service_scale", test_ref_folder, "docker-compose.yml")
 
 
+@unittest.skipIf(get_podman_version() >= version.parse("5.0.0"), "Breaks as of podman-5.4.2.")
 class TestComposeScale(unittest.TestCase, RunSubprocessMixin):
-    # scale-up using `scale` prarmeter in docker-compose.yml
+    # scale-up using `scale` parameter in docker-compose.yml
     def test_scaleup_scale_parameter(self) -> None:
         try:
             output, _, return_code = self.run_subprocess([
@@ -51,7 +55,7 @@ class TestComposeScale(unittest.TestCase, RunSubprocessMixin):
                 "0",
             ])
 
-    # scale-up using `deploy => replicas` prarmeter in docker-compose.yml
+    # scale-up using `deploy => replicas` parameter in docker-compose.yml
     def test_scaleup_deploy_replicas_parameter(self) -> None:
         try:
             output, _, return_code = self.run_subprocess([

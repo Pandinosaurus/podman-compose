@@ -1,6 +1,6 @@
 -e .
 coverage==7.4.3
-cryptography==46.0.5
+cryptography==50.0.0
 parameterized==0.9.0
 pytest==8.0.2
 tox==4.13.0
@@ -10,6 +10,9 @@ pylint==3.1.0
 types-PyYAML==6.0.12.20250402
 types-requests==2.32.0.20250328
 types-setuptools==80.7.0.20250516
+APScheduler==3.11.2
+
+# NOTE: when upgrading the above packages, also upgrade .pre-commit-config.yaml
 
 # The packages below are transitive dependencies of the packages above and are included here
 # to make testing reproducible.
@@ -28,7 +31,7 @@ colorama==0.4.6
 dill==0.3.8
 distlib==0.3.8
 filelock==3.13.1
-idna==3.11
+idna==3.15
 iniconfig==2.0.0
 isort==5.13.2
 mccabe==0.7.0
@@ -43,5 +46,6 @@ PyYAML==6.0.1
 requests==2.32.5
 tomlkit==0.12.4
 typing_extensions==4.13.2
+tzlocal==5.3.1
 urllib3==2.6.3
 virtualenv==20.26.6

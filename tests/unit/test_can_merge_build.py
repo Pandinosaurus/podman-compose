@@ -92,7 +92,7 @@ class TestCanMergeBuild(unittest.TestCase):
 
         actual_compose = {}
         if podman_compose.services:
-            actual_compose = podman_compose.original_service(
+            actual_compose = podman_compose.original_configuration(
                 podman_compose.services["test-service"]
             )
         self.assertEqual(actual_compose, expected)
@@ -122,23 +122,23 @@ class TestCanMergeBuild(unittest.TestCase):
     @parameterized.expand([
         ({}, {"$$$": []}, {"$$$": []}),
         ({"$$$": []}, {}, {"$$$": []}),
-        ({"$$$": []}, {"$$$": "sh-2"}, {"$$$": ["sh-2"]}),
+        ({"$$$": []}, {"$$$": "sh-2"}, {"$$$": "sh-2"}),
         ({"$$$": "sh-2"}, {"$$$": []}, {"$$$": []}),
-        ({}, {"$$$": "sh"}, {"$$$": ["sh"]}),
-        ({"$$$": "sh"}, {}, {"$$$": ["sh"]}),
-        ({"$$$": "sh-1"}, {"$$$": "sh-2"}, {"$$$": ["sh-2"]}),
-        ({"$$$": ["sh-1"]}, {"$$$": "sh-2"}, {"$$$": ["sh-2"]}),
+        ({}, {"$$$": "sh"}, {"$$$": "sh"}),
+        ({"$$$": "sh"}, {}, {"$$$": "sh"}),
+        ({"$$$": "sh-1"}, {"$$$": "sh-2"}, {"$$$": "sh-2"}),
+        ({"$$$": ["sh-1"]}, {"$$$": "sh-2"}, {"$$$": "sh-2"}),
         ({"$$$": "sh-1"}, {"$$$": ["sh-2"]}, {"$$$": ["sh-2"]}),
         ({"$$$": "sh-1"}, {"$$$": ["sh-2", "sh-3"]}, {"$$$": ["sh-2", "sh-3"]}),
         ({"$$$": ["sh-1"]}, {"$$$": ["sh-2", "sh-3"]}, {"$$$": ["sh-2", "sh-3"]}),
         ({"$$$": ["sh-1", "sh-2"]}, {"$$$": ["sh-3", "sh-4"]}, {"$$$": ["sh-3", "sh-4"]}),
         ({}, {"$$$": ["sh-3", "sh      4"]}, {"$$$": ["sh-3", "sh      4"]}),
-        ({"$$$": "sleep infinity"}, {"$$$": "sh"}, {"$$$": ["sh"]}),
-        ({"$$$": "sh"}, {"$$$": "sleep infinity"}, {"$$$": ["sleep", "infinity"]}),
+        ({"$$$": "sleep infinity"}, {"$$$": "sh"}, {"$$$": "sh"}),
+        ({"$$$": "sh"}, {"$$$": "sleep infinity"}, {"$$$": "sleep infinity"}),
         (
             {},
             {"$$$": "bash -c 'sleep infinity'"},
-            {"$$$": ["bash", "-c", "sleep infinity"]},
+            {"$$$": "bash -c 'sleep infinity'"},
         ),
     ])
     def test_parse_compose_file_when_multiple_composes_keys_command_entrypoint(
@@ -160,7 +160,9 @@ class TestCanMergeBuild(unittest.TestCase):
 
             actual = {}
             if podman_compose.services:
-                actual = podman_compose.original_service(podman_compose.services["test-service"])
+                actual = podman_compose.original_configuration(
+                    podman_compose.services["test-service"]
+                )
             self.assertEqual(actual, expected)
 
 

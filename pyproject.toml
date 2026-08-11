@@ -42,6 +42,12 @@ devel = [
     "parameterized",
     "pre-commit",
     "ruff",
+    "mypy",
+    "pylint",
+    "packaging",
+    "requests",
+    "tzlocal",
+    "types-PyYAML"
 ]
 
 [project.scripts]
@@ -125,5 +131,6 @@ exclude = "build"
 [[tool.mypy.overrides]]
 module = [
     "parameterized.*",
+    "apscheduler.*",
 ]
 ignore_missing_imports = true

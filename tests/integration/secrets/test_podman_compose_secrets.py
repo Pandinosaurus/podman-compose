@@ -47,12 +47,11 @@ class TestComposeNoSecrets(unittest.TestCase, RunSubprocessMixin):
                     "up",
                     "test",
                 ],
+                env={"TEST_ENVIRONMENT": "important-secret-is-important"},
             )
 
-            self.assertIn(
-                b'WARNING: Service "test" uses target: "podman_compose_test_secret_3" '
-                + b'for secret: "podman_compose_test_secret_3". That is un-supported and '
-                + b'a no-op and is ignored.',
+            self.assertNotIn(
+                b'That is un-supported and a no-op and is ignored.',
                 error,
             )
             self.assertIn(
@@ -68,6 +67,7 @@ class TestComposeNoSecrets(unittest.TestCase, RunSubprocessMixin):
                 + b'/run/secrets/file_secret:important-secret-is-important\n'
                 + b'/run/secrets/podman_compose_test_secret:podman_compose_test_secret\n'
                 + b'/run/secrets/podman_compose_test_secret_3:podman_compose_test_secret_3\n'
+                + b'/run/secrets/secrets_environment_secret:important-secret-is-important\n'
                 + b'/run/secrets/unused_params_warning:important-secret-is-important\n'
                 + b'important-secret-is-important\n'
                 + b'podman_compose_test_secret\n'

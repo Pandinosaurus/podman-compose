@@ -195,6 +195,27 @@ class TestContainerToBuildArgs(unittest.TestCase):
             ],
         )
 
+    def test_context_git_url_with_dockerfile(self):
+        c = create_compose_mock()
+
+        cnt = get_minimal_container()
+        cnt['build']['context'] = "https://github.com/test_repo.git"
+        cnt['build']['dockerfile'] = "Dockerfile.custom"
+        args = get_minimal_args()
+
+        args = container_to_build_args(c, cnt, args, lambda path: False)
+        self.assertEqual(
+            args,
+            [
+                '-f',
+                'Dockerfile.custom',
+                '-t',
+                'new-image',
+                '--no-cache',
+                'https://github.com/test_repo.git',
+            ],
+        )
+
     def test_context_invalid_git_url_git_is_not_prefix(self):
         c = create_compose_mock()
 
@@ -358,6 +379,88 @@ class TestContainerToBuildArgs(unittest.TestCase):
                 'new-image',
                 '--no-cache',
                 '--pull=always',
+                '.',
+            ],
+        )
+
+    def test_containerfile_in_context(self):
+        c = create_compose_mock()
+
+        cnt = get_minimal_container()
+        cnt['build']['context'] = "./subdir"
+        args = get_minimal_args()
+        args = container_to_build_args(c, cnt, args, lambda path: True)
+        self.assertEqual(
+            args,
+            [
+                '-f',
+                'subdir/Containerfile',
+                '-t',
+                'new-image',
+                '--no-cache',
+                './subdir',
+            ],
+        )
+
+    def test_build_environment_secret_no_target(self):
+        c = create_compose_mock()
+        c.declared_secrets = {'my_secret': {'environment': 'MY_VAR'}}
+        cnt = get_minimal_container()
+        cnt['build']['secrets'] = ['my_secret']
+        args = get_minimal_args()
+        args = container_to_build_args(c, cnt, args, lambda path: True)
+        self.assertEqual(
+            args,
+            [
+                '-f',
+                'Containerfile',
+                '-t',
+                'new-image',
+                '--secret',
+                'id=my_secret,env=MY_VAR',
+                '--no-cache',
+                '.',
+            ],
+        )
+
+    def test_build_environment_secret_with_target(self):
+        c = create_compose_mock()
+        c.declared_secrets = {'my_secret': {'environment': 'MY_VAR'}}
+        cnt = get_minimal_container()
+        cnt['build']['secrets'] = [{'source': 'my_secret', 'target': 'custom_id'}]
+        args = get_minimal_args()
+        args = container_to_build_args(c, cnt, args, lambda path: True)
+        self.assertEqual(
+            args,
+            [
+                '-f',
+                'Containerfile',
+                '-t',
+                'new-image',
+                '--secret',
+                'id=custom_id,env=MY_VAR',
+                '--no-cache',
+                '.',
+            ],
+        )
+
+    def test_pass_no_ipc_to_build(self) -> None:
+        """Do not pass --ipc to podman build"""
+        c = create_compose_mock()
+
+        cnt = get_minimal_container()
+        cnt["ipc"] = "host"
+        args = get_minimal_args()
+
+        args = container_to_build_args(c, cnt, args, lambda path: True)
+        self.assertEqual(
+            args,
+            [
+                '-f',
+                'Containerfile',
+                '-t',
+                'new-image',
+                '--no-cache',
                 '.',
             ],
         )
